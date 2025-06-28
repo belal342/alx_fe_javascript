@@ -60,6 +60,7 @@ function init() {
 function addStyles() {
     const style = document.createElement('style');
     style.textContent = `
+        /* Notification styles */
         #notification-container {
             position: fixed;
             bottom: 20px;
@@ -109,6 +110,8 @@ function addStyles() {
             cursor: pointer;
             margin-left: 10px;
         }
+
+        /* Conflict resolution modal styles */
         .conflict-modal {
             position: fixed;
             top: 0;
@@ -154,6 +157,8 @@ function addStyles() {
             background: #E3F2FD;
             border: 1px solid #BBDEFB;
         }
+
+        /* Sync status styles */
         .sync-status {
             position: fixed;
             bottom: 10px;
@@ -173,11 +178,51 @@ function addStyles() {
         .status-error {
             background: #F44336;
         }
+
+        /* Confirmation dialog styles */
+        .confirm-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1002;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .confirm-content {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            max-width: 400px;
+            width: 90%;
+        }
+        .confirm-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .confirm-button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .confirm-primary {
+            background: #F44336;
+            color: white;
+        }
+        .confirm-secondary {
+            background: #E0E0E0;
+        }
     `;
     document.head.appendChild(style);
 }
 
-// Show notification
+// Show notification (replaces alert())
 function showNotification(message, type = 'info', duration = 5000) {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -197,6 +242,33 @@ function showNotification(message, type = 'info', duration = 5000) {
     notification.querySelector('.notification-close').addEventListener('click', () => {
         clearTimeout(timer);
         notification.remove();
+    });
+}
+
+// Show confirmation dialog (replaces confirm())
+function showConfirmation(message, callback) {
+    const dialog = document.createElement('div');
+    dialog.className = 'confirm-dialog';
+    dialog.innerHTML = `
+        <div class="confirm-content">
+            <p>${message}</p>
+            <div class="confirm-buttons">
+                <button class="confirm-button confirm-secondary">Cancel</button>
+                <button class="confirm-button confirm-primary">Confirm</button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    dialog.querySelector('.confirm-secondary').addEventListener('click', () => {
+        dialog.remove();
+        callback(false);
+    });
+    
+    dialog.querySelector('.confirm-primary').addEventListener('click', () => {
+        dialog.remove();
+        callback(true);
     });
 }
 
@@ -655,16 +727,18 @@ function importFromJsonFile(event) {
 
 // Clear storage
 function clearStorage() {
-    if (confirm('Are you sure you want to clear all quotes? This cannot be undone.')) {
-        localStorage.removeItem('quotes');
-        localStorage.removeItem('lastFilter');
-        sessionStorage.removeItem('lastUpdated');
-        quotes = [];
-        saveQuotes();
-        populateCategories();
-        quoteDisplay.innerHTML = '<p>All quotes have been cleared.</p>';
-        showNotification('All quotes have been cleared', 'success');
-    }
+    showConfirmation('Are you sure you want to clear all quotes? This cannot be undone.', (confirmed) => {
+        if (confirmed) {
+            localStorage.removeItem('quotes');
+            localStorage.removeItem('lastFilter');
+            sessionStorage.removeItem('lastUpdated');
+            quotes = [];
+            saveQuotes();
+            populateCategories();
+            quoteDisplay.innerHTML = '<p>All quotes have been cleared.</p>';
+            showNotification('All quotes have been cleared', 'success');
+        }
+    });
 }
 
 // Initialize
