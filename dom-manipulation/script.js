@@ -11,13 +11,14 @@ let quotes = [
 const quoteDisplay = document.getElementById('quoteDisplay');
 const newQuoteBtn = document.getElementById('newQuote');
 const categorySelect = document.getElementById('categorySelect');
-const newQuoteText = document.getElementById('newQuoteText');
-const newQuoteCategory = document.getElementById('newQuoteCategory');
 
 // Initialize the app
 function init() {
     // Set up event listeners
     newQuoteBtn.addEventListener('click', showRandomQuote);
+    
+    // Create the add quote form
+    createAddQuoteForm();
     
     // Populate category filter
     updateCategoryFilter();
@@ -49,10 +50,40 @@ function showRandomQuote() {
     `;
 }
 
+// Create the form for adding new quotes
+function createAddQuoteForm() {
+    const formContainer = document.createElement('div');
+    formContainer.style.marginTop = '30px';
+    
+    const heading = document.createElement('h3');
+    heading.textContent = 'Add New Quote';
+    
+    const quoteInput = document.createElement('input');
+    quoteInput.id = 'newQuoteText';
+    quoteInput.type = 'text';
+    quoteInput.placeholder = 'Enter a new quote';
+    
+    const categoryInput = document.createElement('input');
+    categoryInput.id = 'newQuoteCategory';
+    categoryInput.type = 'text';
+    categoryInput.placeholder = 'Enter quote category';
+    
+    const addButton = document.createElement('button');
+    addButton.textContent = 'Add Quote';
+    addButton.addEventListener('click', addQuote);
+    
+    formContainer.appendChild(heading);
+    formContainer.appendChild(quoteInput);
+    formContainer.appendChild(categoryInput);
+    formContainer.appendChild(addButton);
+    
+    document.body.appendChild(formContainer);
+}
+
 // Add a new quote
 function addQuote() {
-    const text = newQuoteText.value.trim();
-    const category = newQuoteCategory.value.trim();
+    const text = document.getElementById('newQuoteText').value.trim();
+    const category = document.getElementById('newQuoteCategory').value.trim();
     
     if (!text || !category) {
         alert('Please enter both quote text and category');
@@ -64,8 +95,8 @@ function addQuote() {
     quotes.push(newQuote);
     
     // Clear input fields
-    newQuoteText.value = '';
-    newQuoteCategory.value = '';
+    document.getElementById('newQuoteText').value = '';
+    document.getElementById('newQuoteCategory').value = '';
     
     // Update category filter
     updateCategoryFilter();
