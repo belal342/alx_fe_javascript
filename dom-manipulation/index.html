@@ -37,7 +37,6 @@
         input {
             padding: 8px;
             margin: 5px;
-            width: 300px;
         }
         .category-filter {
             margin: 20px 0;
@@ -49,6 +48,14 @@
         .quote-category {
             margin-top: 10px;
             color: #666;
+        }
+        .storage-actions {
+            margin: 20px 0;
+            padding: 15px;
+            border-top: 1px solid #eee;
+        }
+        .file-input {
+            display: none;
         }
     </style>
 </head>
@@ -68,11 +75,11 @@
     
     <button id="newQuote">Show New Quote</button>
     
-    <div id="addQuoteForm" style="margin-top: 30px;">
-        <h3>Add New Quote</h3>
-        <input id="newQuoteText" type="text" placeholder="Enter a new quote" />
-        <input id="newQuoteCategory" type="text" placeholder="Enter quote category" />
-        <button onclick="addQuote()">Add Quote</button>
+    <div class="storage-actions">
+        <button id="exportQuotes">Export Quotes to JSON</button>
+        <button onclick="document.getElementById('importFile').click()">Import Quotes from JSON</button>
+        <input type="file" id="importFile" class="file-input" accept=".json" />
+        <button id="clearStorage">Clear All Quotes</button>
     </div>
     
     <script src="script.js"></script>
