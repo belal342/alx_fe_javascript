@@ -49,67 +49,126 @@ function init() {
     
     // Store the initial load time in session storage
     sessionStorage.setItem('lastLoaded', new Date().toISOString());
+    
+    // Add styles dynamically
+    addStyles();
+}
+
+// Add necessary styles
+function addStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .sync-notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #ffeb3b;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            padding: 15px;
+            max-width: 300px;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .conflict-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1001;
+            padding: 20px;
+            overflow: auto;
+        }
+        .conflict-modal .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .conflict-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #eee;
+        }
+        .versions {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        .version {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+        }
+        .version.local { background: #e8f5e9; }
+        .version.server { background: #e3f2fd; }
+        #syncStatus {
+            margin: 10px 0;
+            padding: 5px;
+            font-size: 0.9em;
+        }
+    `;
+    document.head.appendChild(style);
 }
 
 // Server synchronization setup
 function setupServerSync() {
     // Initial sync
-    syncWithServer();
+    syncQuotes();
     
     // Periodic sync
-    setInterval(syncWithServer, SYNC_INTERVAL);
+    setInterval(syncQuotes, SYNC_INTERVAL);
     
-    // Display sync status
-    updateSyncStatus('Last sync: Never', 'gray');
+    updateSyncStatus('Ready to sync', 'gray');
 }
 
-// Sync data with server
-async function syncWithServer() {
+// Main sync function
+async function syncQuotes() {
     try {
         updateSyncStatus('Syncing with server...', 'blue');
         
-        // Get current timestamp before sync
-        const syncStartTime = new Date().toISOString();
-        
-        // 1. Get server data using the properly named function
-        const serverData = await fetchQuotesFromServer();
+        // 1. Get server data
+        const serverQuotes = await fetchQuotesFromServer();
         
         // 2. Merge with local data
-        const mergeResult = mergeQuotes(quotes, serverData);
+        const mergeResult = mergeData(quotes, serverQuotes);
         
         // 3. Handle conflicts if any
         if (mergeResult.conflicts.length > 0) {
             hasUnresolvedConflicts = true;
-            showConflictNotification(mergeResult.conflicts);
+            showSyncNotification(
+                `${mergeResult.conflicts.length} conflicts detected`,
+                mergeResult.conflicts
+            );
         }
         
-        // 4. Update local storage if changes were made
+        // 4. Update local storage if needed
         if (mergeResult.updated || mergeResult.conflicts.length > 0) {
-            quotes = mergeResult.mergedQuotes;
+            quotes = mergeResult.mergedData;
             saveQuotes();
             populateCategories();
             showRandomQuote();
         }
         
-        // 5. Update sync status
-        lastSyncTime = new Date();
-        updateSyncStatus(`Last sync: ${lastSyncTime.toLocaleTimeString()}`, 'green');
-        
-        // 6. Simulate sending updates to server
+        // 5. Send local updates to server
         await sendUpdatesToServer(quotes);
         
+        updateSyncStatus(`Synced: ${new Date().toLocaleTimeString()}`, 'green');
+        
     } catch (error) {
-        console.error('Sync failed:', error);
+        console.error('Sync error:', error);
         updateSyncStatus('Sync failed', 'red');
     }
 }
 
-// Fetch quotes from server (properly named as per requirements)
+// Fetch quotes from server
 async function fetchQuotesFromServer() {
     const response = await fetch(SERVER_URL);
     if (!response.ok) throw new Error('Server request failed');
     
-    // Transform mock data into our quote format
     const serverPosts = await response.json();
     return serverPosts.slice(0, 5).map(post => ({
         id: post.id,
@@ -119,141 +178,193 @@ async function fetchQuotesFromServer() {
     }));
 }
 
-// Send updates to server (simulated)
+// Send updates to server with proper POST request
 async function sendUpdatesToServer(quotesToSend) {
-    console.log('Simulating sending updates to server:', quotesToSend.length);
-    return new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+        updateSyncStatus('Sending updates to server...', 'blue');
+        
+        const quotesToSync = quotesToSend.filter(quote => 
+            !quote.synced || 
+            new Date(quote.lastUpdated) > new Date(quote.lastSynced || 0)
+        );
+
+        if (quotesToSync.length === 0) {
+            console.log('No quotes need syncing');
+            return;
+        }
+
+        // Simulate POST request with proper headers
+        const response = await fetch(SERVER_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer mock-token'
+            },
+            body: JSON.stringify({
+                quotes: quotesToSync,
+                lastSync: localStorage.getItem('lastSync') || null
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to sync with server');
+
+        // Update sync status
+        const now = new Date().toISOString();
+        quotes.forEach(quote => {
+            if (quotesToSync.some(q => q.id === quote.id)) {
+                quote.lastSynced = now;
+                quote.synced = true;
+            }
+        });
+
+        localStorage.setItem('lastSync', now);
+        updateSyncStatus(`Sync complete: ${new Date().toLocaleTimeString()}`, 'green');
+
+    } catch (error) {
+        console.error('Sync failed:', error);
+        updateSyncStatus('Sync failed', 'red');
+        throw error;
+    }
 }
 
-// Merge local and server quotes with conflict detection
-function mergeQuotes(localQuotes, serverQuotes) {
-    const mergedQuotes = [...localQuotes];
+// Merge data with conflict detection
+function mergeData(localData, serverData) {
+    const merged = [...localData];
     const conflicts = [];
     let updated = false;
-    
-    serverQuotes.forEach(serverQuote => {
-        const existingIndex = mergedQuotes.findIndex(q => q.id === serverQuote.id);
+
+    serverData.forEach(serverItem => {
+        const localIndex = merged.findIndex(item => item.id === serverItem.id);
         
-        if (existingIndex === -1) {
-            mergedQuotes.push(serverQuote);
+        if (localIndex === -1) {
+            merged.push(serverItem);
             updated = true;
         } else {
-            const localQuote = mergedQuotes[existingIndex];
-            if (new Date(serverQuote.lastUpdated) > new Date(localQuote.lastUpdated)) {
-                if (JSON.stringify(serverQuote) !== JSON.stringify(localQuote)) {
-                    conflicts.push({
-                        id: serverQuote.id,
-                        local: localQuote,
-                        server: serverQuote
-                    });
-                    mergedQuotes[existingIndex] = serverQuote;
-                    updated = true;
-                }
+            const localItem = merged[localIndex];
+            const serverIsNewer = new Date(serverItem.lastUpdated) > new Date(localItem.lastUpdated);
+            
+            if (serverIsNewer && !deepEqual(serverItem, localItem)) {
+                conflicts.push({
+                    id: serverItem.id,
+                    local: localItem,
+                    server: serverItem
+                });
+                merged[localIndex] = serverItem;
+                updated = true;
             }
         }
     });
-    
-    return {
-        mergedQuotes,
-        conflicts,
-        updated
-    };
+
+    return { mergedData: merged, conflicts, updated };
 }
 
-// Show conflict notification
-function showConflictNotification(conflicts) {
-    const conflictDialog = document.createElement('div');
-    conflictDialog.style.position = 'fixed';
-    conflictDialog.style.bottom = '20px';
-    conflictDialog.style.right = '20px';
-    conflictDialog.style.padding = '15px';
-    conflictDialog.style.backgroundColor = '#ffeb3b';
-    conflictDialog.style.border = '1px solid #ffc107';
-    conflictDialog.style.borderRadius = '5px';
-    conflictDialog.style.zIndex = '1000';
-    conflictDialog.style.maxWidth = '300px';
-    
-    conflictDialog.innerHTML = `
-        <h3 style="margin-top: 0;">Data Conflicts Detected (${conflicts.length})</h3>
-        <p>Some quotes were updated on the server.</p>
-        <button id="viewConflicts" style="margin-top: 10px;">View Conflicts</button>
-        <button id="dismissConflicts" style="margin-top: 10px; margin-left: 5px;">Dismiss</button>
+// Deep equality check
+function deepEqual(obj1, obj2) {
+    return JSON.stringify(obj1) === JSON.stringify(obj2);
+}
+
+// Show sync notification
+function showSyncNotification(message, conflicts = []) {
+    const notification = document.createElement('div');
+    notification.className = 'sync-notification';
+    notification.innerHTML = `
+        <div class="sync-notification-content">
+            <h3>${message}</h3>
+            ${conflicts.length ? `
+                <p>${conflicts.length} conflicts need resolution</p>
+                <button class="resolve-btn">Resolve Now</button>
+            ` : ''}
+            <button class="dismiss-btn">Dismiss</button>
+        </div>
     `;
-    
-    document.body.appendChild(conflictDialog);
-    
-    document.getElementById('viewConflicts').addEventListener('click', () => {
-        showDetailedConflicts(conflicts);
-        conflictDialog.remove();
+
+    document.body.appendChild(notification);
+
+    notification.querySelector('.resolve-btn')?.addEventListener('click', () => {
+        showConflictResolution(conflicts);
+        notification.remove();
     });
-    
-    document.getElementById('dismissConflicts').addEventListener('click', () => {
-        conflictDialog.remove();
+
+    notification.querySelector('.dismiss-btn').addEventListener('click', () => {
+        notification.remove();
     });
 }
 
-// Show detailed conflict resolution UI
-function showDetailedConflicts(conflicts) {
-    const conflictContainer = document.createElement('div');
-    conflictContainer.style.position = 'fixed';
-    conflictContainer.style.top = '0';
-    conflictContainer.style.left = '0';
-    conflictContainer.style.right = '0';
-    conflictContainer.style.bottom = '0';
-    conflictContainer.style.backgroundColor = 'rgba(0,0,0,0.7)';
-    conflictContainer.style.zIndex = '1001';
-    conflictContainer.style.padding = '20px';
-    conflictContainer.style.overflow = 'auto';
+// Show conflict resolution UI
+function showConflictResolution(conflicts) {
+    const modal = document.createElement('div');
+    modal.className = 'conflict-modal';
     
-    let conflictsHTML = '<h2>Resolve Conflicts</h2>';
-    
-    conflicts.forEach((conflict, index) => {
-        conflictsHTML += `
-            <div style="background: white; padding: 15px; margin-bottom: 15px; border-radius: 5px;">
-                <h3>Conflict #${index + 1}</h3>
-                <div style="display: flex; justify-content: space-between;">
-                    <div style="width: 48%; border: 1px solid #ccc; padding: 10px;">
-                        <h4>Local Version</h4>
-                        <p><strong>Text:</strong> ${conflict.local.text}</p>
-                        <p><strong>Category:</strong> ${conflict.local.category}</p>
-                        <p><small>Last updated: ${new Date(conflict.local.lastUpdated).toLocaleString()}</small></p>
-                        <button onclick="resolveConflict(${index}, 'local')">Keep Local</button>
-                    </div>
-                    <div style="width: 48%; border: 1px solid #ccc; padding: 10px;">
-                        <h4>Server Version</h4>
-                        <p><strong>Text:</strong> ${conflict.server.text}</p>
-                        <p><strong>Category:</strong> ${conflict.server.category}</p>
-                        <p><small>Last updated: ${new Date(conflict.server.lastUpdated).toLocaleString()}</small></p>
-                        <button onclick="resolveConflict(${index}, 'server')">Keep Server</button>
-                    </div>
+    let conflictsHTML = conflicts.map((conflict, index) => `
+        <div class="conflict-item">
+            <h3>Conflict #${index + 1}</h3>
+            <div class="versions">
+                <div class="version local">
+                    <h4>Your Version</h4>
+                    <p>${conflict.local.text}</p>
+                    <small>${new Date(conflict.local.lastUpdated).toLocaleString()}</small>
+                    <button data-id="${conflict.id}" data-version="local">Keep This</button>
+                </div>
+                <div class="version server">
+                    <h4>Server Version</h4>
+                    <p>${conflict.server.text}</p>
+                    <small>${new Date(conflict.server.lastUpdated).toLocaleString()}</small>
+                    <button data-id="${conflict.id}" data-version="server">Keep This</button>
                 </div>
             </div>
-        `;
-    });
-    
-    conflictsHTML += `
-        <button style="margin-top: 20px; padding: 10px 20px;" onclick="document.body.removeChild(this.parentNode)">
-            Close Conflict Resolution
-        </button>
+        </div>
+    `).join('');
+
+    modal.innerHTML = `
+        <div class="modal-content">
+            <h2>Resolve Conflicts</h2>
+            ${conflictsHTML}
+            <button class="close-modal">Close</button>
+        </div>
     `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelectorAll('[data-version]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = parseInt(e.target.dataset.id);
+            const version = e.target.dataset.version;
+            resolveConflict(id, version);
+            modal.remove();
+        });
+    });
+
+    modal.querySelector('.close-modal').addEventListener('click', () => {
+        modal.remove();
+    });
+}
+
+// Resolve conflict
+function resolveConflict(id, version) {
+    const conflictIndex = quotes.findIndex(q => q.id === id);
+    if (conflictIndex === -1) return;
+
+    if (version === 'server') {
+        // Server version already applied during merge
+        quotes[conflictIndex].resolved = true;
+    } else {
+        // Revert to local version
+        const localVersion = JSON.parse(sessionStorage.getItem('conflictLocal_' + id));
+        if (localVersion) {
+            quotes[conflictIndex] = localVersion;
+            quotes[conflictIndex].lastUpdated = new Date().toISOString();
+            quotes[conflictIndex].resolved = true;
+        }
+    }
     
-    conflictContainer.innerHTML = conflictsHTML;
-    document.body.appendChild(conflictContainer);
+    saveQuotes();
+    hasUnresolvedConflicts = quotes.some(q => q.conflict && !q.resolved);
 }
 
-// Resolve a conflict
-function resolveConflict(index, version) {
-    console.log(`Resolved conflict ${index} in favor of ${version} version`);
-    hasUnresolvedConflicts = false;
-}
-
-// Update sync status display
+// Update sync status
 function updateSyncStatus(message, color) {
     syncStatus.textContent = message;
     syncStatus.style.color = color;
-    syncStatus.style.margin = '10px 0';
-    syncStatus.style.padding = '5px';
-    syncStatus.style.fontSize = '0.9em';
 }
 
 // Load quotes from local storage
@@ -293,7 +404,7 @@ function populateCategories() {
     });
 }
 
-// Apply saved filter from local storage
+// Apply saved filter
 function applySavedFilter() {
     const savedFilter = localStorage.getItem('lastFilter');
     if (savedFilter && categoryFilter.querySelector(`option[value="${savedFilter}"]`)) {
@@ -301,13 +412,13 @@ function applySavedFilter() {
     }
 }
 
-// Filter quotes based on selected category
+// Filter quotes
 function filterQuotes() {
     localStorage.setItem('lastFilter', categoryFilter.value);
     showRandomQuote();
 }
 
-// Display a random quote from the current filter
+// Display random quote
 function showRandomQuote() {
     const selectedCategory = categoryFilter.value;
     let filteredQuotes = selectedCategory === 'all' ? quotes : quotes.filter(quote => quote.category === selectedCategory);
@@ -333,7 +444,7 @@ function showRandomQuote() {
     sessionStorage.setItem('lastViewedQuote', JSON.stringify(quote));
 }
 
-// Create the form for adding new quotes
+// Create add quote form
 function createAddQuoteForm() {
     const formContainer = document.createElement('div');
     formContainer.style.marginTop = '30px';
@@ -374,7 +485,7 @@ function createAddQuoteForm() {
     document.body.appendChild(formContainer);
 }
 
-// Add a new quote
+// Add new quote
 function addQuote() {
     const text = document.getElementById('newQuoteText').value.trim();
     const category = document.getElementById('newQuoteCategory').value.trim();
@@ -406,7 +517,7 @@ function addQuote() {
     `;
 }
 
-// Export quotes to JSON file using Blob
+// Export to JSON
 function exportToJsonFile() {
     if (quotes.length === 0) {
         alert('No quotes to export');
@@ -427,7 +538,7 @@ function exportToJsonFile() {
     }, 100);
 }
 
-// Import quotes from JSON file
+// Import from JSON
 function importFromJsonFile(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -464,7 +575,7 @@ function importFromJsonFile(event) {
     fileReader.readAsText(file);
 }
 
-// Clear all quotes from storage
+// Clear storage
 function clearStorage() {
     if (confirm('Are you sure you want to clear all quotes? This cannot be undone.')) {
         localStorage.removeItem('quotes');
@@ -477,5 +588,5 @@ function clearStorage() {
     }
 }
 
-// Initialize the application
+// Initialize
 init();
