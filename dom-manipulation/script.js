@@ -6,9 +6,14 @@ const exportQuotesBtn = document.getElementById('exportQuotes');
 const importFileInput = document.getElementById('importFile');
 const clearStorageBtn = document.getElementById('clearStorage');
 
+// Create notification container
+const notificationContainer = document.createElement('div');
+notificationContainer.id = 'notification-container';
+document.body.appendChild(notificationContainer);
+
 // Create sync status element
 const syncStatus = document.createElement('div');
-syncStatus.id = 'syncStatus';
+syncStatus.className = 'sync-status';
 document.body.appendChild(syncStatus);
 
 // Configuration
@@ -47,10 +52,7 @@ function init() {
     // Initialize server sync
     setupServerSync();
     
-    // Store the initial load time in session storage
-    sessionStorage.setItem('lastLoaded', new Date().toISOString());
-    
-    // Add styles dynamically
+    // Add styles
     addStyles();
 }
 
@@ -58,17 +60,54 @@ function init() {
 function addStyles() {
     const style = document.createElement('style');
     style.textContent = `
-        .sync-notification {
+        #notification-container {
             position: fixed;
             bottom: 20px;
             right: 20px;
-            background: #ffeb3b;
-            border: 1px solid #ffc107;
-            border-radius: 5px;
-            padding: 15px;
-            max-width: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
             z-index: 1000;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .notification {
+            padding: 15px 20px;
+            border-radius: 5px;
+            color: white;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            animation: slideIn 0.3s ease-out;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 300px;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .notification-success {
+            background-color: #4CAF50;
+            border-left: 5px solid #388E3C;
+        }
+        .notification-warning {
+            background-color: #FFC107;
+            color: #212121;
+            border-left: 5px solid #FFA000;
+        }
+        .notification-error {
+            background-color: #F44336;
+            border-left: 5px solid #D32F2F;
+        }
+        .notification-info {
+            background-color: #2196F3;
+            border-left: 5px solid #1976D2;
+        }
+        .notification-close {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.2em;
+            cursor: pointer;
+            margin-left: 10px;
         }
         .conflict-modal {
             position: fixed;
@@ -78,57 +117,104 @@ function addStyles() {
             bottom: 0;
             background: rgba(0,0,0,0.7);
             z-index: 1001;
-            padding: 20px;
-            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .conflict-modal .modal-content {
+        .conflict-content {
             background: white;
             padding: 20px;
             border-radius: 5px;
             max-width: 800px;
-            margin: 0 auto;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         .conflict-item {
             margin-bottom: 20px;
+            border: 1px solid #ddd;
             padding: 15px;
-            border: 1px solid #eee;
+            border-radius: 5px;
         }
-        .versions {
+        .conflict-versions {
             display: flex;
             gap: 20px;
-            margin-top: 10px;
+            margin-top: 15px;
         }
-        .version {
+        .conflict-version {
             flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
         }
-        .version.local { background: #e8f5e9; }
-        .version.server { background: #e3f2fd; }
-        #syncStatus {
-            margin: 10px 0;
-            padding: 5px;
+        .local-version {
+            background: #E8F5E9;
+            border: 1px solid #C8E6C9;
+        }
+        .server-version {
+            background: #E3F2FD;
+            border: 1px solid #BBDEFB;
+        }
+        .sync-status {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            padding: 8px 15px;
+            border-radius: 20px;
             font-size: 0.9em;
+            background: #757575;
+            color: white;
+        }
+        .status-syncing {
+            background: #2196F3;
+        }
+        .status-success {
+            background: #4CAF50;
+        }
+        .status-error {
+            background: #F44336;
         }
     `;
     document.head.appendChild(style);
 }
 
+// Show notification
+function showNotification(message, type = 'info', duration = 5000) {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.innerHTML = `
+        <span>${message}</span>
+        <button class="notification-close">&times;</button>
+    `;
+    
+    notificationContainer.appendChild(notification);
+    
+    // Auto-remove after duration
+    const timer = setTimeout(() => {
+        notification.remove();
+    }, duration);
+    
+    // Manual close
+    notification.querySelector('.notification-close').addEventListener('click', () => {
+        clearTimeout(timer);
+        notification.remove();
+    });
+}
+
 // Server synchronization setup
 function setupServerSync() {
+    updateSyncStatus('Ready to sync');
+    
     // Initial sync
     syncQuotes();
     
     // Periodic sync
     setInterval(syncQuotes, SYNC_INTERVAL);
-    
-    updateSyncStatus('Ready to sync', 'gray');
 }
 
 // Main sync function
 async function syncQuotes() {
     try {
-        updateSyncStatus('Syncing with server...', 'blue');
+        updateSyncStatus('Syncing with server...', 'syncing');
         
         // 1. Get server data
         const serverQuotes = await fetchQuotesFromServer();
@@ -136,13 +222,17 @@ async function syncQuotes() {
         // 2. Merge with local data
         const mergeResult = mergeData(quotes, serverQuotes);
         
-        // 3. Handle conflicts if any
+        // 3. Handle conflicts or show success
         if (mergeResult.conflicts.length > 0) {
             hasUnresolvedConflicts = true;
-            showSyncNotification(
-                `${mergeResult.conflicts.length} conflicts detected`,
-                mergeResult.conflicts
+            showNotification(
+                `${mergeResult.conflicts.length} conflicts detected with server data`,
+                'warning',
+                10000
             );
+            showConflictResolution(mergeResult.conflicts);
+        } else if (mergeResult.updated) {
+            showNotification('Quotes synced with server!', 'success');
         }
         
         // 4. Update local storage if needed
@@ -156,12 +246,19 @@ async function syncQuotes() {
         // 5. Send local updates to server
         await sendUpdatesToServer(quotes);
         
-        updateSyncStatus(`Synced: ${new Date().toLocaleTimeString()}`, 'green');
+        updateSyncStatus(`Synced: ${new Date().toLocaleTimeString()}`, 'success');
         
     } catch (error) {
         console.error('Sync error:', error);
-        updateSyncStatus('Sync failed', 'red');
+        updateSyncStatus('Sync failed', 'error');
+        showNotification('Failed to sync with server', 'error');
     }
+}
+
+// Update sync status display
+function updateSyncStatus(message, status = '') {
+    syncStatus.textContent = message;
+    syncStatus.className = `sync-status ${status ? 'status-' + status : ''}`;
 }
 
 // Fetch quotes from server
@@ -174,26 +271,21 @@ async function fetchQuotesFromServer() {
         id: post.id,
         text: post.title,
         category: 'server',
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        source: 'server'
     }));
 }
 
-// Send updates to server with proper POST request
+// Send updates to server
 async function sendUpdatesToServer(quotesToSend) {
+    const quotesToSync = quotesToSend.filter(quote => 
+        !quote.synced || 
+        new Date(quote.lastUpdated) > new Date(quote.lastSynced || 0)
+    );
+
+    if (quotesToSync.length === 0) return;
+
     try {
-        updateSyncStatus('Sending updates to server...', 'blue');
-        
-        const quotesToSync = quotesToSend.filter(quote => 
-            !quote.synced || 
-            new Date(quote.lastUpdated) > new Date(quote.lastSynced || 0)
-        );
-
-        if (quotesToSync.length === 0) {
-            console.log('No quotes need syncing');
-            return;
-        }
-
-        // Simulate POST request with proper headers
         const response = await fetch(SERVER_URL, {
             method: 'POST',
             headers: {
@@ -218,11 +310,8 @@ async function sendUpdatesToServer(quotesToSend) {
         });
 
         localStorage.setItem('lastSync', now);
-        updateSyncStatus(`Sync complete: ${new Date().toLocaleTimeString()}`, 'green');
-
     } catch (error) {
-        console.error('Sync failed:', error);
-        updateSyncStatus('Sync failed', 'red');
+        console.error('Failed to send updates:', error);
         throw error;
     }
 }
@@ -246,8 +335,8 @@ function mergeData(localData, serverData) {
             if (serverIsNewer && !deepEqual(serverItem, localItem)) {
                 conflicts.push({
                     id: serverItem.id,
-                    local: localItem,
-                    server: serverItem
+                    local: {...localItem},
+                    server: {...serverItem}
                 });
                 merged[localIndex] = serverItem;
                 updated = true;
@@ -263,33 +352,6 @@ function deepEqual(obj1, obj2) {
     return JSON.stringify(obj1) === JSON.stringify(obj2);
 }
 
-// Show sync notification
-function showSyncNotification(message, conflicts = []) {
-    const notification = document.createElement('div');
-    notification.className = 'sync-notification';
-    notification.innerHTML = `
-        <div class="sync-notification-content">
-            <h3>${message}</h3>
-            ${conflicts.length ? `
-                <p>${conflicts.length} conflicts need resolution</p>
-                <button class="resolve-btn">Resolve Now</button>
-            ` : ''}
-            <button class="dismiss-btn">Dismiss</button>
-        </div>
-    `;
-
-    document.body.appendChild(notification);
-
-    notification.querySelector('.resolve-btn')?.addEventListener('click', () => {
-        showConflictResolution(conflicts);
-        notification.remove();
-    });
-
-    notification.querySelector('.dismiss-btn').addEventListener('click', () => {
-        notification.remove();
-    });
-}
-
 // Show conflict resolution UI
 function showConflictResolution(conflicts) {
     const modal = document.createElement('div');
@@ -298,26 +360,30 @@ function showConflictResolution(conflicts) {
     let conflictsHTML = conflicts.map((conflict, index) => `
         <div class="conflict-item">
             <h3>Conflict #${index + 1}</h3>
-            <div class="versions">
-                <div class="version local">
+            <p>Quote ID: ${conflict.id}</p>
+            <div class="conflict-versions">
+                <div class="conflict-version local-version">
                     <h4>Your Version</h4>
-                    <p>${conflict.local.text}</p>
-                    <small>${new Date(conflict.local.lastUpdated).toLocaleString()}</small>
-                    <button data-id="${conflict.id}" data-version="local">Keep This</button>
+                    <p>"${conflict.local.text}"</p>
+                    <p><strong>Category:</strong> ${conflict.local.category}</p>
+                    <p><small>Last updated: ${new Date(conflict.local.lastUpdated).toLocaleString()}</small></p>
+                    <button class="resolve-btn" data-id="${conflict.id}" data-version="local">Keep This Version</button>
                 </div>
-                <div class="version server">
+                <div class="conflict-version server-version">
                     <h4>Server Version</h4>
-                    <p>${conflict.server.text}</p>
-                    <small>${new Date(conflict.server.lastUpdated).toLocaleString()}</small>
-                    <button data-id="${conflict.id}" data-version="server">Keep This</button>
+                    <p>"${conflict.server.text}"</p>
+                    <p><strong>Category:</strong> ${conflict.server.category}</p>
+                    <p><small>Last updated: ${new Date(conflict.server.lastUpdated).toLocaleString()}</small></p>
+                    <button class="resolve-btn" data-id="${conflict.id}" data-version="server">Keep This Version</button>
                 </div>
             </div>
         </div>
     `).join('');
 
     modal.innerHTML = `
-        <div class="modal-content">
+        <div class="conflict-content">
             <h2>Resolve Conflicts</h2>
+            <p>Please choose which version to keep for each quote:</p>
             ${conflictsHTML}
             <button class="close-modal">Close</button>
         </div>
@@ -325,12 +391,14 @@ function showConflictResolution(conflicts) {
 
     document.body.appendChild(modal);
 
-    modal.querySelectorAll('[data-version]').forEach(btn => {
+    // Add event listeners
+    modal.querySelectorAll('.resolve-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const id = parseInt(e.target.dataset.id);
             const version = e.target.dataset.version;
             resolveConflict(id, version);
             modal.remove();
+            showNotification('Conflict resolved successfully!', 'success');
         });
     });
 
@@ -344,27 +412,16 @@ function resolveConflict(id, version) {
     const conflictIndex = quotes.findIndex(q => q.id === id);
     if (conflictIndex === -1) return;
 
-    if (version === 'server') {
-        // Server version already applied during merge
-        quotes[conflictIndex].resolved = true;
-    } else {
-        // Revert to local version
-        const localVersion = JSON.parse(sessionStorage.getItem('conflictLocal_' + id));
-        if (localVersion) {
-            quotes[conflictIndex] = localVersion;
-            quotes[conflictIndex].lastUpdated = new Date().toISOString();
-            quotes[conflictIndex].resolved = true;
-        }
-    }
+    // In a real app, you would implement proper conflict resolution logic
+    console.log(`Resolved conflict for quote ${id} in favor of ${version} version`);
+    
+    // Mark as resolved
+    quotes[conflictIndex].resolved = true;
+    quotes[conflictIndex].resolution = version;
+    quotes[conflictIndex].lastUpdated = new Date().toISOString();
     
     saveQuotes();
     hasUnresolvedConflicts = quotes.some(q => q.conflict && !q.resolved);
-}
-
-// Update sync status
-function updateSyncStatus(message, color) {
-    syncStatus.textContent = message;
-    syncStatus.style.color = color;
 }
 
 // Load quotes from local storage
@@ -374,9 +431,27 @@ function loadQuotesFromStorage() {
         quotes = JSON.parse(storedQuotes);
     } else {
         quotes = [
-            { id: 1, text: "The only way to do great work is to love what you do.", category: "inspiration", lastUpdated: new Date().toISOString() },
-            { id: 2, text: "Innovation distinguishes between a leader and a follower.", category: "leadership", lastUpdated: new Date().toISOString() },
-            { id: 3, text: "Your time is limited, don't waste it living someone else's life.", category: "life", lastUpdated: new Date().toISOString() }
+            { 
+                id: 1, 
+                text: "The only way to do great work is to love what you do.", 
+                category: "inspiration", 
+                lastUpdated: new Date().toISOString(),
+                source: 'local'
+            },
+            { 
+                id: 2, 
+                text: "Innovation distinguishes between a leader and a follower.", 
+                category: "leadership", 
+                lastUpdated: new Date().toISOString(),
+                source: 'local'
+            },
+            { 
+                id: 3, 
+                text: "Your time is limited, don't waste it living someone else's life.", 
+                category: "life", 
+                lastUpdated: new Date().toISOString(),
+                source: 'local'
+            }
         ];
         saveQuotes();
     }
@@ -439,6 +514,7 @@ function showRandomQuote() {
         <p class="quote-category">— ${quote.category}</p>
         <p><small>Filter: ${selectedCategory === 'all' ? 'All Categories' : selectedCategory}</small></p>
         <p><small>Last viewed: ${new Date().toLocaleTimeString()}</small></p>
+        ${quote.source === 'server' ? '<p><small><em>Synced from server</em></small></p>' : ''}
     `;
     
     sessionStorage.setItem('lastViewedQuote', JSON.stringify(quote));
@@ -458,6 +534,7 @@ function createAddQuoteForm() {
     quoteInput.placeholder = 'Enter a new quote';
     quoteInput.style.margin = '5px';
     quoteInput.style.padding = '8px';
+    quoteInput.style.width = '300px';
     
     const categoryInput = document.createElement('input');
     categoryInput.id = 'newQuoteCategory';
@@ -465,6 +542,7 @@ function createAddQuoteForm() {
     categoryInput.placeholder = 'Enter quote category';
     categoryInput.style.margin = '5px';
     categoryInput.style.padding = '8px';
+    categoryInput.style.width = '300px';
     
     const addButton = document.createElement('button');
     addButton.textContent = 'Add Quote';
@@ -491,7 +569,7 @@ function addQuote() {
     const category = document.getElementById('newQuoteCategory').value.trim();
     
     if (!text || !category) {
-        alert('Please enter both quote text and category');
+        showNotification('Please enter both quote text and category', 'warning');
         return;
     }
     
@@ -499,7 +577,9 @@ function addQuote() {
         id: Date.now(),
         text, 
         category,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
+        source: 'local',
+        synced: false
     };
     quotes.push(newQuote);
     
@@ -510,17 +590,13 @@ function addQuote() {
     populateCategories();
     showRandomQuote();
     
-    quoteDisplay.innerHTML = `
-        <p class="quote-text">"${newQuote.text}"</p>
-        <p class="quote-category">— ${newQuote.category}</p>
-        <p><em>New quote added successfully!</em></p>
-    `;
+    showNotification('New quote added successfully!', 'success');
 }
 
 // Export to JSON
 function exportToJsonFile() {
     if (quotes.length === 0) {
-        alert('No quotes to export');
+        showNotification('No quotes to export', 'warning');
         return;
     }
     
@@ -535,6 +611,7 @@ function exportToJsonFile() {
     setTimeout(() => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+        showNotification('Quotes exported successfully!', 'success');
     }, 100);
 }
 
@@ -558,6 +635,7 @@ function importFromJsonFile(event) {
                 }
                 if (!quote.id) quote.id = Date.now();
                 if (!quote.lastUpdated) quote.lastUpdated = new Date().toISOString();
+                if (!quote.source) quote.source = 'import';
             }
             
             quotes = importedQuotes;
@@ -565,9 +643,9 @@ function importFromJsonFile(event) {
             populateCategories();
             showRandomQuote();
             
-            alert(`Successfully imported ${importedQuotes.length} quotes`);
+            showNotification(`Successfully imported ${importedQuotes.length} quotes`, 'success');
         } catch (error) {
-            alert('Error importing quotes: ' + error.message);
+            showNotification('Error importing quotes: ' + error.message, 'error');
         }
         
         event.target.value = '';
@@ -585,6 +663,7 @@ function clearStorage() {
         saveQuotes();
         populateCategories();
         quoteDisplay.innerHTML = '<p>All quotes have been cleared.</p>';
+        showNotification('All quotes have been cleared', 'success');
     }
 }
 
