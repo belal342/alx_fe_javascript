@@ -1,7 +1,7 @@
 // DOM elements
 const quoteDisplay = document.getElementById('quoteDisplay');
 const newQuoteBtn = document.getElementById('newQuote');
-const categorySelect = document.getElementById('categorySelect');
+const categoryFilter = document.getElementById('categoryFilter');
 const exportQuotesBtn = document.getElementById('exportQuotes');
 const importFileInput = document.getElementById('importFile');
 const clearStorageBtn = document.getElementById('clearStorage');
@@ -16,15 +16,19 @@ function init() {
     
     // Set up event listeners
     newQuoteBtn.addEventListener('click', showRandomQuote);
-    exportQuotesBtn.addEventListener('click', exportToJsonFile); // Updated to use Blob
+    exportQuotesBtn.addEventListener('click', exportToJsonFile);
     importFileInput.addEventListener('change', importFromJsonFile);
     clearStorageBtn.addEventListener('click', clearStorage);
+    categoryFilter.addEventListener('change', filterQuotes);
     
     // Create the add quote form
     createAddQuoteForm();
     
-    // Populate category filter
-    updateCategoryFilter();
+    // Populate categories dropdown
+    populateCategories();
+    
+    // Apply last saved filter if exists
+    applySavedFilter();
     
     // Show initial random quote
     showRandomQuote();
@@ -59,16 +63,64 @@ function saveQuotes() {
     sessionStorage.setItem('lastUpdated', new Date().toISOString());
 }
 
-// Display a random quote
+// Populate categories dropdown
+function populateCategories() {
+    // Clear existing options
+    categoryFilter.innerHTML = '';
+    
+    // Add default option
+    const defaultOption = document.createElement('option');
+    defaultOption.value = 'all';
+    defaultOption.textContent = 'All Categories';
+    categoryFilter.appendChild(defaultOption);
+    
+    // Get unique categories
+    const categories = [...new Set(quotes.map(quote => quote.category))];
+    
+    // Add category options
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category;
+        option.textContent = category;
+        categoryFilter.appendChild(option);
+    });
+}
+
+// Apply saved filter from local storage
+function applySavedFilter() {
+    const savedFilter = localStorage.getItem('lastFilter');
+    if (savedFilter && categoryFilter.querySelector(`option[value="${savedFilter}"]`)) {
+        categoryFilter.value = savedFilter;
+        console.log('Applied saved filter:', savedFilter);
+    }
+}
+
+// Filter quotes based on selected category
+function filterQuotes() {
+    const selectedCategory = categoryFilter.value;
+    
+    // Save the selected filter
+    localStorage.setItem('lastFilter', selectedCategory);
+    
+    // Show a random quote from the filtered category
+    showRandomQuote();
+}
+
+// Display a random quote from the current filter
 function showRandomQuote() {
-    // Filter quotes if a category is selected
+    const selectedCategory = categoryFilter.value;
     let filteredQuotes = quotes;
-    if (categorySelect.value !== 'all') {
-        filteredQuotes = quotes.filter(quote => quote.category === categorySelect.value);
+    
+    // Apply category filter if not "all"
+    if (selectedCategory !== 'all') {
+        filteredQuotes = quotes.filter(quote => quote.category === selectedCategory);
     }
     
     if (filteredQuotes.length === 0) {
-        quoteDisplay.innerHTML = '<p>No quotes available in this category.</p>';
+        quoteDisplay.innerHTML = `
+            <p>No quotes available in this category.</p>
+            <p>Try selecting a different category or adding new quotes.</p>
+        `;
         return;
     }
     
@@ -79,6 +131,7 @@ function showRandomQuote() {
     quoteDisplay.innerHTML = `
         <p class="quote-text">"${quote.text}"</p>
         <p class="quote-category">— ${quote.category}</p>
+        <p><small>Filter: ${selectedCategory === 'all' ? 'All Categories' : selectedCategory}</small></p>
         <p><small>Last viewed: ${new Date().toLocaleTimeString()}</small></p>
     `;
     
@@ -98,14 +151,25 @@ function createAddQuoteForm() {
     quoteInput.id = 'newQuoteText';
     quoteInput.type = 'text';
     quoteInput.placeholder = 'Enter a new quote';
+    quoteInput.style.margin = '5px';
+    quoteInput.style.padding = '8px';
     
     const categoryInput = document.createElement('input');
     categoryInput.id = 'newQuoteCategory';
     categoryInput.type = 'text';
     categoryInput.placeholder = 'Enter quote category';
+    categoryInput.style.margin = '5px';
+    categoryInput.style.padding = '8px';
     
     const addButton = document.createElement('button');
     addButton.textContent = 'Add Quote';
+    addButton.style.margin = '5px';
+    addButton.style.padding = '8px 15px';
+    addButton.style.backgroundColor = '#4CAF50';
+    addButton.style.color = 'white';
+    addButton.style.border = 'none';
+    addButton.style.borderRadius = '4px';
+    addButton.style.cursor = 'pointer';
     addButton.addEventListener('click', addQuote);
     
     formContainer.appendChild(heading);
@@ -136,7 +200,8 @@ function addQuote() {
     
     // Save to storage and update UI
     saveQuotes();
-    updateCategoryFilter();
+    populateCategories();
+    showRandomQuote();
     
     // Show the newly added quote
     quoteDisplay.innerHTML = `
@@ -146,27 +211,7 @@ function addQuote() {
     `;
 }
 
-// Update the category filter dropdown
-function updateCategoryFilter() {
-    // Get all unique categories
-    const categories = ['all', ...new Set(quotes.map(quote => quote.category))];
-    
-    // Clear existing options
-    categorySelect.innerHTML = '';
-    
-    // Add new options
-    categories.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category;
-        option.textContent = category === 'all' ? 'All Categories' : category;
-        categorySelect.appendChild(option);
-    });
-    
-    // Add event listener for category change
-    categorySelect.addEventListener('change', showRandomQuote);
-}
-
-// Export quotes to JSON file using Blob (correct implementation)
+// Export quotes to JSON file using Blob
 function exportToJsonFile() {
     if (quotes.length === 0) {
         alert('No quotes to export');
@@ -220,7 +265,7 @@ function importFromJsonFile(event) {
             // Replace existing quotes with imported ones
             quotes = importedQuotes;
             saveQuotes();
-            updateCategoryFilter();
+            populateCategories();
             showRandomQuote();
             
             alert(`Successfully imported ${importedQuotes.length} quotes`);
@@ -239,10 +284,11 @@ function importFromJsonFile(event) {
 function clearStorage() {
     if (confirm('Are you sure you want to clear all quotes? This cannot be undone.')) {
         localStorage.removeItem('quotes');
+        localStorage.removeItem('lastFilter');
         sessionStorage.removeItem('lastUpdated');
         quotes = [];
         saveQuotes();
-        updateCategoryFilter();
+        populateCategories();
         quoteDisplay.innerHTML = '<p>All quotes have been cleared.</p>';
     }
 }
