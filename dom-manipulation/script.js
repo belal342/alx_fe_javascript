@@ -16,7 +16,7 @@ function init() {
     
     // Set up event listeners
     newQuoteBtn.addEventListener('click', showRandomQuote);
-    exportQuotesBtn.addEventListener('click', exportToJson);
+    exportQuotesBtn.addEventListener('click', exportToJsonFile); // Updated to use Blob
     importFileInput.addEventListener('change', importFromJsonFile);
     clearStorageBtn.addEventListener('click', clearStorage);
     
@@ -55,7 +55,7 @@ function saveQuotes() {
     localStorage.setItem('quotes', JSON.stringify(quotes));
     console.log('Saved quotes to local storage');
     
-    // Also store last update time in session storage
+    // Store last update time in session storage
     sessionStorage.setItem('lastUpdated', new Date().toISOString());
 }
 
@@ -166,22 +166,34 @@ function updateCategoryFilter() {
     categorySelect.addEventListener('change', showRandomQuote);
 }
 
-// Export quotes to JSON file
-function exportToJson() {
+// Export quotes to JSON file using Blob (correct implementation)
+function exportToJsonFile() {
     if (quotes.length === 0) {
         alert('No quotes to export');
         return;
     }
     
-    const dataStr = JSON.stringify(quotes, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+    // Create JSON string with pretty formatting
+    const jsonString = JSON.stringify(quotes, null, 2);
     
-    const exportFileDefaultName = 'quotes.json';
+    // Create Blob object
+    const blob = new Blob([jsonString], { type: 'application/json' });
     
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
+    // Create download link
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'quotes.json';
+    
+    // Trigger download
+    document.body.appendChild(a);
+    a.click();
+    
+    // Clean up
+    setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }, 100);
 }
 
 // Import quotes from JSON file
